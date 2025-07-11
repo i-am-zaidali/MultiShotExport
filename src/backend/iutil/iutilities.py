@@ -1,14 +1,31 @@
-# uncompyle6 version 3.2.3
-# Python bytecode 2.7 (62211)
-# Decompiled from: Python 2.7.15 (v2.7.15:ca079a3ea3, Apr 30 2018, 16:30:26) [MSC v.1500 64 bit (AMD64)]
-# Embedded file name: C:/Users/qurban.ali.ICE-144/Documents/maya/scripts\shot_subm\src\backend\iutil\iutilities.py
-# Compiled at: 2017-11-08 17:37:11
-import random, os, shutil, warnings, re, stat, subprocess, sys, time, hashlib, functools, cProfile, tempfile, itertools
-op = os.path
-import datetime, collections
-from os.path import curdir, join, abspath, splitunc, splitdrive, sep, pardir
-import imghdr, struct, csv, string, operator
+import collections
+import contextlib
+import cProfile
+import csv
+import datetime
+import functools
+import hashlib
+import imghdr
+import itertools
+import os
+import random
+import re
+import shutil
+import stat
+import string
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import typing
+import warnings
 from ctypes import windll
+from os.path import abspath, curdir, join, pardir, sep, splitdrive
+from pathlib import Path
+
+op = os.path
+
 
 class memoize(object):
     """Decorator. Caches a function's return value each time it is called.
@@ -60,33 +77,35 @@ def getLatestFile(paths):
 
 
 def getUsername():
-    return os.environ['USERNAME']
+    return os.environ["USERNAME"]
 
 
-def dictionaryToDetails(_dict, anl='Reason'):
+def dictionaryToDetails(_dict, anl="Reason"):
     """converts a dictinary containing key values as strings to a string
-        each key value pair separated by 
-     and each item (key value) both separated
-        by 
-    
+       each key value pair separated by
+    and each item (key value) both separated
+       by
+
     """
-    result = ''
+    result = ""
     for key, value in _dict.items():
-        if type(value) == type(list()):
-            value = ('\n').join(value)
-        result += ('\n\n').join([('\n%s: ').join([key, value]) % anl])
+        if isinstance(value, list):
+            value = "\n".join(value)
+        result += "\n\n".join(["\n%s: ".join([key, value]) % anl])
 
     return result
 
 
-def splitPath(path):
+def splitPath(path: typing.Union[str, Path]):
     """splits a file or folder path and returns as a list
     'D:/path/to/folder/or/file' -> ['D:', 'path', 'to', 'folder', 'or', 'file']
     """
+    if isinstance(path, Path):
+        path = str(path)
     components = []
     while True:
         path, tail = os.path.split(path)
-        if tail == '':
+        if tail == "":
             if path:
                 components.append(path)
             components.reverse()
@@ -96,12 +115,12 @@ def splitPath(path):
 
 def getCSVFileData(fileName):
     """returns list of tupples containing the csv file rows separated by comma"""
-    with open(fileName, 'rb') as (csvfile):
-        tuples = list(csv.reader(csvfile, delimiter=','))
+    with open(fileName, "rb") as csvfile:
+        tuples = list(csv.reader(csvfile, delimiter=","))
     return tuples
 
 
-def basename(path, depth=3):
+def basename(path, depth=3) -> str:
     """returns last 'depth' entries in a file or folder path as a string"""
     return op.join(*splitPath(path)[-depth:])
 
@@ -115,32 +134,28 @@ def mkdir(path, dirs):
     """makes directories or folders recursively in a given path"""
     for d in splitPath(dirs):
         path = op.join(path, d)
-        try:
+        with contextlib.suppress(Exception):
             os.mkdir(path)
-        except:
-            pass
 
 
 def fileExists(path, fileName):
     for name in os.listdir(path):
         try:
-            if re.search(fileName + '_v\\d{3}', name):
+            if re.search(fileName + "_v\\d{3}", name):
                 return True
-        except:
+        except Exception:
             pass
 
 
 def getLastVersion(path, fileName, nxt=False):
     versions = []
     for version in os.listdir(path):
-        try:
-            versions.append(int(re.search('_v\\d{3}', version).group().split('v')[-1]))
-        except AttributeError:
-            pass
+        with contextlib.suppress(AttributeError):
+            versions.append(int(re.search("_v\\d{3}", version).group().split("v")[-1]))
 
     if versions:
         temp = max(versions) + 1 if nxt else max(versions)
-        return fileName + '_v' + str(temp).zfill(3)
+        return fileName + "_v" + str(temp).zfill(3)
 
 
 def get_drives():
@@ -157,15 +172,16 @@ def get_drives():
 def onerror(func, path, exc_info):
     """
     Error handler for ``shutil.rmtree``.
-    
+
     If the error is due to an access error (read only file)
     it attempts to add write permission and then retries.
-    
+
     If the error is for another reason it re-raises the error.
-    
+
     Usage : ``shutil.rmtree(path, onerror=onerror)``
     """
     import stat
+
     if not os.access(path, os.W_OK):
         os.chmod(path, stat.S_IWUSR)
         func(path)
@@ -176,89 +192,95 @@ def onerror(func, path, exc_info):
 def get_image_size(fname):
     """Determine the image type of fhandle and return its size.
     from draco"""
-    with open(fname, 'rb') as (fhandle):
+    with open(fname, "rb") as fhandle:
         head = fhandle.read(24)
         if len(head) != 24:
             return
-        if imghdr.what(fname) == 'png':
-            check = struct.unpack('>i', head[4:8])[0]
+        if imghdr.what(fname) == "png":
+            check = struct.unpack(">i", head[4:8])[0]
             if check != 218765834:
                 return
-            width, height = struct.unpack('>ii', head[16:24])
+            width, height = struct.unpack(">ii", head[16:24])
+        elif imghdr.what(fname) == "gif":
+            width, height = struct.unpack("<HH", head[6:10])
+        elif imghdr.what(fname) in ("jpeg", "jpg"):
+            try:
+                fhandle.seek(0)
+                size = 2
+                ftype = 0
+                while not 192 <= ftype <= 207:
+                    fhandle.seek(size, 1)
+                    byte = fhandle.read(1)
+                    while ord(byte) == 255:
+                        byte = fhandle.read(1)
+
+                    ftype = ord(byte)
+                    size = struct.unpack(">H", fhandle.read(2))[0] - 2
+
+                fhandle.seek(1, 1)
+                height, width = struct.unpack(">HH", fhandle.read(4))
+            except Exception as ex:
+                print(str(ex))
+                return
+
         else:
-            if imghdr.what(fname) == 'gif':
-                width, height = struct.unpack('<HH', head[6:10])
-            else:
-                if imghdr.what(fname) in ('jpeg', 'jpg'):
-                    try:
-                        fhandle.seek(0)
-                        size = 2
-                        ftype = 0
-                        while not 192 <= ftype <= 207:
-                            fhandle.seek(size, 1)
-                            byte = fhandle.read(1)
-                            while ord(byte) == 255:
-                                byte = fhandle.read(1)
-
-                            ftype = ord(byte)
-                            size = struct.unpack('>H', fhandle.read(2))[0] - 2
-
-                        fhandle.seek(1, 1)
-                        height, width = struct.unpack('>HH', fhandle.read(4))
-                    except Exception as ex:
-                        print str(ex)
-                        return
-
-                else:
-                    return
-        return (
-         width, height)
+            return
+        return (width, height)
 
 
 def resizeImage(image, size):
-    command = 'R:\\Pipe_Repo\\Users\\Qurban\\applications\\ImageMagick\\mogrify.exe '
-    command += ' -resize ' + size + ' ' + image
+    command = "R:\\Pipe_Repo\\Users\\Qurban\\applications\\ImageMagick\\mogrify.exe "
+    command += " -resize " + size + " " + image
     subprocess.call(command, shell=True)
 
 
 def addFrameNumber(image, frame, outputImage=None):
     res = get_image_size(image)
     if not res:
-        raise RuntimeError, 'Could not find image resolution: %s' % image
+        raise RuntimeError("Could not find image resolution: %s" % image)
     if not outputImage:
         outputImage = image
-    subprocess.call('R:\\Pipe_Repo\\Users\\Qurban\\applications\\ImageMagick\\convert.exe %s -draw "text %s" %s' % (image, str(res[0] / 2) + ',' + str(res[1] / 8) + " '%s'" % frame, ' ' + outputImage), shell=True)
+    subprocess.call(
+        'R:\\Pipe_Repo\\Users\\Qurban\\applications\\ImageMagick\\convert.exe %s -draw "text %s" %s'
+        % (
+            image,
+            str(res[0] / 2) + "," + str(res[1] / 8) + " '%s'" % frame,
+            " " + outputImage,
+        ),
+        shell=True,
+    )
 
 
 def paths_equal(path1, path2):
     return op.normpath(op.normcase(path1)) == op.normpath(op.normcase(path2))
 
 
-def _abspath_split(path):
-    abs = abspath(op.normpath(path))
-    prefix, rest = splitunc(abs)
-    is_unc = bool(prefix)
-    if not is_unc:
-        prefix, rest = splitdrive(abs)
-    return (is_unc, prefix, [ x for x in rest.split(sep) if x ])
+def _abspath_split(path: str):
+    abs_path = abspath(op.normpath(path))
+    # In Python 3, splitunc is removed; use splitdrive for both UNC and drive paths
+    prefix, rest = splitdrive(abs_path)
+    is_unc = abs_path.startswith("\\\\")
+    return (is_unc, prefix, [x for x in rest.split(sep) if x])
 
 
 def relpath(path, start=curdir):
     """Return a relative version of a path"""
     if not path:
-        raise ValueError('no path specified')
+        raise ValueError("no path specified")
     start_is_unc, start_prefix, start_list = _abspath_split(start)
     path_is_unc, path_prefix, path_list = _abspath_split(path)
     if path_is_unc ^ start_is_unc:
-        raise ValueError('Cannot mix UNC and non-UNC paths (%s and %s)' % (
-         path, start))
+        raise ValueError("Cannot mix UNC and non-UNC paths (%s and %s)" % (path(start)))
     if path_prefix.lower() != start_prefix.lower():
         if path_is_unc:
-            raise ValueError('path is on UNC root %s, start on UNC root %s' % (
-             path_prefix, start_prefix))
+            raise ValueError(
+                "path is on UNC root %s, start on UNC root %s"
+                % (path_prefix(start_prefix))
+            )
         else:
-            raise ValueError('path is on drive %s, start on drive %s' % (
-             path_prefix, start_prefix))
+            raise ValueError(
+                "path is on drive %s, start on drive %s" % (path_prefix(start_prefix))
+            )
     i = 0
     for e1, e2 in zip(start_list, path_list):
         if e1.lower() != e2.lower():
@@ -273,8 +295,11 @@ def relpath(path, start=curdir):
 
 op.relpath = relpath
 
-def getTemp(mkd=False, suffix='', prefix='tmp', directory=None):
-    tmp = getattr(tempfile, 'mkdtemp' if mkd else 'mkstemp')(suffix=suffix, prefix=prefix, dir=directory)
+
+def getTemp(mkd=False, suffix="", prefix="tmp", directory=None):
+    tmp = getattr(tempfile, "mkdtemp" if mkd else "mkstemp")(
+        suffix=suffix, prefix=prefix, dir=directory
+    )
     if mkd:
         return tmp
     os.close(tmp[0])
@@ -285,20 +310,14 @@ def mayaFile(path):
     """
     @return True if the file ends with extensions else False
     """
-    extensions = [
-     '.ma',
-     '.mb']
+    extensions = [".ma", ".mb"]
     try:
         path = path.lower()
     except BaseException as e:
-        print 'util.mayaFile'
+        print("util.mayaFile")
         raise e
 
-    for extension in extensions:
-        if path.endswith(extension):
-            return True
-
-    return False
+    return any(path.endswith(extension) for extension in extensions)
 
 
 def getIndPathComps(path):
@@ -322,7 +341,9 @@ def getPathComps(path):
     """
     pathComps = []
     pathComps.append(path)
-    for path in (op.dirname(path) if 1 else None for _ in path if path != op.dirname(path)):
+    for path in (
+        (op.dirname(path) if path != op.dirname(path) else None) for _ in path
+    ):
         if path:
             pathComps.append(path)
         else:
@@ -331,15 +352,18 @@ def getPathComps(path):
     return pathComps
 
 
-def randomString(length=5, choice='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'):
-    return ('').join([ random.choice(choice) for _ in range(length) ])
+def randomString(
+    length=5,
+    choice="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+):
+    return "".join([random.choice(choice) for _ in range(length)])
 
 
 def randomNumber():
     return random.random()
 
 
-def archive(file_dir, file_name, copy=False, alternatePath=''):
+def archive(file_dir, file_name, copy=False, alternatePath=""):
     """
     Move the file file_dir, filename to file_dir, .archive, filename, file_name_date_modified
     """
@@ -351,41 +375,52 @@ def archive(file_dir, file_name, copy=False, alternatePath=''):
     else:
         fpath = file_dir
     if not haveWritePermission(fpath):
-        warnings.warn('Access denied...')
+        warnings.warn("Access denied...")
         return
     if not file_name:
-        warnings.warn('No file name specified...')
+        warnings.warn("No file name specified...")
         return
     if not fpath:
-        warnings.warn('No file path specified...')
+        warnings.warn("No file path specified...")
         return
     try:
         dir_names = os.listdir(file_dir)
     except WindowsError:
-        warnings.warn('Incorrect path, use / instead of \\ in the path...')
+        warnings.warn("Incorrect path, use / instead of \\ in the path...")
         return
 
     if file_name not in dir_names:
         warnings.warn("File doesn't exist...")
         return
-    archive = op.join(fpath, '.archive')
-    if '.archive' not in os.listdir(fpath):
+    archive = op.join(fpath, ".archive")
+    if ".archive" not in os.listdir(fpath):
         os.mkdir(archive)
     _dir = os.listdir(archive)
     fileArchive = op.join(archive, file_name)
     if file_name not in _dir:
         os.mkdir(fileArchive)
     fileToArchive = op.join(file_dir, file_name)
-    date = str(datetime.datetime.fromtimestamp(op.getmtime(fileToArchive))).replace(':', '-').replace(' ', '_')
+    date = (
+        str(datetime.datetime.fromtimestamp(op.getmtime(fileToArchive)))
+        .replace(":", "-")
+        .replace(" ", "_")
+    )
     finalPath = op.join(fileArchive, date)
-    if op.exists(finalPath):
-        if os.listdir(finalPath):
-            try:
-                if op.getsize(fileToArchive) == op.getsize(op.join(finalPath, filter(lambda theFile: op.isfile(op.join(finalPath, theFile)), os.listdir(finalPath))[0])):
-                    return op.join(finalPath, file_name)
-                finalPath = getTemp(prefix=date + '_', mkd=True, directory=fileArchive)
-            except BaseException as e:
-                print e
+    if op.exists(finalPath) and os.listdir(finalPath):
+        try:
+            if op.getsize(fileToArchive) == op.getsize(
+                op.join(
+                    finalPath,
+                    filter(
+                        lambda theFile: op.isfile(op.join(finalPath, theFile)),
+                        os.listdir(finalPath),
+                    )[0],
+                )
+            ):
+                return op.join(finalPath, file_name)
+            finalPath = getTemp(prefix=date + "_", mkd=True, directory=fileArchive)
+        except BaseException as e:
+            print(e)
 
     if not op.exists(finalPath):
         os.mkdir(finalPath)
@@ -398,14 +433,19 @@ def archive(file_dir, file_name, copy=False, alternatePath=''):
 
 def listdir(path, dirs=True):
     path = path if op.isdir(path) else op.dirname(path)
-    return filter(lambda sibling: not op.isdir(op.join(path, sibling)) ^ dirs, os.listdir(path))
+    return filter(
+        lambda sibling: not op.isdir(op.join(path, sibling)) ^ dirs,
+        os.listdir(path),
+    )
 
 
 def localPath(path, localDrives):
     try:
-        return any((path.lower().find(local_drive) != -1 for local_drive in localDrives))
+        return any(
+            (path.lower().find(local_drive) != -1 for local_drive in localDrives)
+        )
     except BaseException as e:
-        print 'localPath'
+        print("localPath")
         raise e
 
 
@@ -414,7 +454,7 @@ def normpath(path):
 
 
 def lowestConsecutiveUniqueFN(dirpath, bname, hasext=True, key=op.exists):
-    ext = ''
+    ext = ""
     if hasext:
         bname, ext = tuple(op.splitext(bname))
     if not key(op.join(dirpath, bname) + ext):
@@ -422,17 +462,18 @@ def lowestConsecutiveUniqueFN(dirpath, bname, hasext=True, key=op.exists):
     else:
         num = 1
         while True:
-            if key(op.join(dirpath, bname + '_' + str(num)) + ext):
+            if key(op.join(dirpath, bname + "_" + str(num)) + ext):
                 num += 1
                 continue
             else:
-                bname = bname + '_' + str(num) + ext
+                bname = bname + "_" + str(num) + ext
                 break
 
     return bname
 
 
 lCUFN = lowestConsecutiveUniqueFN
+
 
 def ftn_similarity(ftn1, ftn2, ftn_to_texs):
     texs1 = set(ftn_to_texs[ftn1])
@@ -445,8 +486,7 @@ def find_related_ftns(myftn, ftn_to_texs):
     :type ftn: str
     :type ftn_to_texs: dict
     """
-    related_ftns = [
-     myftn]
+    related_ftns = [myftn]
     similars = []
     for ftn in ftn_to_texs:
         if ftn != myftn and ftn_similarity(myftn, ftn, ftn_to_texs):
@@ -459,19 +499,27 @@ def find_related_ftns(myftn, ftn_to_texs):
         mytexs.update(texs)
         related_ftns.extend(ftns)
 
-    return (
-     related_ftns, mytexs)
+    return (related_ftns, mytexs)
 
 
-fn_pattern = '(?P<bn>.*?)(?P<sep>[._])?(?P<tok>-?\\d+|u\\d_v\\d|\\<udim\\>|u\\<U\\>_v\\<V\\>)?(?P<ext>\\..*?)$'
+fn_pattern = "(?P<bn>.*?)(?P<sep>[._])?(?P<tok>-?\\d+|u\\d_v\\d|\\<udim\\>|u\\<U\\>_v\\<V\\>)?(?P<ext>\\..*?)$"
 fn_pattern = re.compile(fn_pattern, re.I)
+
 
 def numerateBN(bn, num=0, pat=fn_pattern):
     match = pat.match(bn)
     if match:
-        groupdict = {k:v if 1 else '' for k, v in match.groupdict().items() if v is not None}
-        return groupdict['bn'] + '_%d' % num + groupdict['sep'] + groupdict['tok'] + groupdict['ext']
-    return bn + '_%d' % num
+        groupdict = {
+            k: (v if v is not None else "") for k, v in match.groupdict().items()
+        }
+        return (
+            groupdict["bn"]
+            + "_%d" % num
+            + groupdict["sep"]
+            + groupdict["tok"]
+            + groupdict["ext"]
+        )
+    return bn + "_%d" % num
 
 
 def anyNameClash(dirpath, bnames, key=op.exists):
@@ -481,22 +529,27 @@ def anyNameClash(dirpath, bnames, key=op.exists):
 def lowestConsecutiveUniqueFTN(dirpath, ftns, texs, key=op.exists):
     texs = list(texs)
     mapping = {}
-    ftn_bns = [ op.basename(ftn) for ftn in ftns ]
-    tex_bns = [ op.basename(tex) for tex in texs ]
+    ftn_bns = [op.basename(ftn) for ftn in ftns]
+    tex_bns = [op.basename(tex) for tex in texs]
     ftn_new_bns = ftn_bns
     tex_new_bns = tex_bns
     num = 0
     while anyNameClash(dirpath, tex_new_bns):
         num += 1
-        tex_new_bns = [ numerateBN(bn, num) for bn in tex_bns ]
-        ftn_new_bns = [ numerateBN(bn, num) for bn in ftn_bns ]
+        tex_new_bns = [numerateBN(bn, num) for bn in tex_bns]
+        ftn_new_bns = [numerateBN(bn, num) for bn in ftn_bns]
 
-    mapping.update({texs[i]:op.join(dirpath, tex_new_bns[i]) for i in range(len(tex_bns))})
-    mapping.update({ftns[i]:op.join(dirpath, ftn_new_bns[i]) for i in range(len(ftn_bns))})
+    mapping.update(
+        {texs[i]: op.join(dirpath, tex_new_bns[i]) for i in range(len(tex_bns))}
+    )
+    mapping.update(
+        {ftns[i]: op.join(dirpath, ftn_new_bns[i]) for i in range(len(ftn_bns))}
+    )
     return mapping
 
 
 lCUFTN = lowestConsecutiveUniqueFTN
+
 
 def silentShellCall(command):
     startupinfo = subprocess.STARTUPINFO()
@@ -511,8 +564,8 @@ def setReadOnly(path):
             os.chmod(path, stat.S_IREAD)
 
 
-def purgeChar(string, pattern='\\W', replace=''):
-    return re.sub('[%s]' % pattern, replace, str(string))
+def purgeChar(string, pattern="\\W", replace=""):
+    return re.sub("[%s]" % pattern, replace, str(string))
 
 
 def haveWritePermission(path, sub=False):
@@ -559,8 +612,8 @@ def pathSplitter(path, drive=False):
             path: a valid path to some file or dir
             drive: list should include drive name or not (bool)
     """
-    if ':' in path:
-        path = (':' + op.sep).join(path.split(':'))
+    if ":" in path:
+        path = (":" + op.sep).join(path.split(":"))
     nodes = op.normpath(path if path else op.sep).split(op.sep)
     if drive:
         return nodes
@@ -568,12 +621,19 @@ def pathSplitter(path, drive=False):
 
 
 def longest_common_substring(s1, s2):
-    set1 = set((s1[begin:end] for begin, end in itertools.combinations(range(len(s1) + 1), 2)))
-    set2 = set((s2[begin:end] for begin, end in itertools.combinations(range(len(s2) + 1), 2)))
+    set1 = {
+        s1[begin:end] for begin, end in itertools.combinations(range(len(s1) + 1), 2)
+    }
+    set2 = {
+        s2[begin:end] for begin, end in itertools.combinations(range(len(s2) + 1), 2)
+    }
     common = set1.intersection(set2)
-    maximal = [ com for com in common if sum((s.find(com) for s in common)) == -1 * (len(common) - 1)
-              ]
-    return [ (s, s1.index(s), s2.index(s)) for s in maximal ]
+    maximal = [
+        com
+        for com in common
+        if sum((s.find(com) for s in common)) == -1 * (len(common) - 1)
+    ]
+    return [(s, s1.index(s), s2.index(s)) for s in maximal]
 
 
 def getParentWindowPos(parent, child, QtCore):
@@ -587,7 +647,7 @@ def getSequenceFiles(filepath):
     Get the sequence of files that are similar and exists in filename's
     directory. The sequence will be either negative or positive or both
     numerically increasing sequence.
-    
+
     The function is a reverse engineered version of what Maya's file node
     uses for sequences.
     """
@@ -595,46 +655,78 @@ def getSequenceFiles(filepath):
     dirname = op.dirname(filename)
     bname = op.basename(filename)
     filename, filext = op.splitext(bname)
-    res = re.match('^(.*?)(\\D)(-?\\d*)$', filename)
+    res = re.match("^(.*?)(\\D)(-?\\d*)$", filename)
     if not res:
         return []
-    seqPattern = re.compile(('^' + ('').join(res.groups()[:-1]) + '(-?)(\\d+)' + filext + '$').replace('.', '\\.'))
+    seqPattern = re.compile(
+        ("^" + "".join(res.groups()[:-1]) + "(-?)(\\d+)" + filext + "$").replace(
+            ".", "\\."
+        )
+    )
     if os.path.exists(dirname):
-        return [ normpath(os.path.join(dirname, dbn)) for dbn in os.listdir(dirname) if seqPattern.match(dbn) ]
+        return [
+            normpath(os.path.join(dirname, dbn))
+            for dbn in os.listdir(dirname)
+            if seqPattern.match(dbn)
+        ]
     return []
 
 
-def getUVTilePattern(filename, ext, filename_format='mari'):
+def getUVTilePattern(filename, ext, filename_format="mari"):
     flags = re.I
-    if os.name == 'posix':
+    if os.name == "posix":
         flags = 0
-    if filename_format == 'mari':
-        return re.compile(('^' + filename + '(1\\d{3})' + ext + '$').replace('.', '\\.'), flags)
-    if filename_format == 'mudbox':
-        return re.compile(('^' + filename + '([uU][1-9]\\d*_[vV][1-9]\\d*)' + ext + '$').replace('.', '\\.'), flags)
-    if filename_format == 'zbrush':
-        return re.compile(('^' + filename + '([uU]\\d+_[vV]\\d+)' + ext + '$').replace('.', '\\.'), flags)
-    return re.compile(('^' + filename + ext + '$').replace('.', '\\.'), flags)
+    if filename_format == "mari":
+        return re.compile(
+            ("^" + filename + "(1\\d{3})" + ext + "$").replace(".", "\\."),
+            flags,
+        )
+    if filename_format == "mudbox":
+        return re.compile(
+            ("^" + filename + "([uU][1-9]\\d*_[vV][1-9]\\d*)" + ext + "$").replace(
+                ".", "\\."
+            ),
+            flags,
+        )
+    if filename_format == "zbrush":
+        return re.compile(
+            ("^" + filename + "([uU]\\d+_[vV]\\d+)" + ext + "$").replace(".", "\\."),
+            flags,
+        )
+    return re.compile(("^" + filename + ext + "$").replace(".", "\\."), flags)
 
 
-udim_patterns = {'mari': re.compile('^(?P<filename>[^<]*)(?:\\<UDIM\\>)?(?P<ext>\\..*?)$', re.I), 
-   'zbrush': re.compile('^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)?(?P<ext>\\..*?)$', re.I), 
-   'mudbox': re.compile('^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)?(?P<ext>\\..*?)$', re.I)}
-udim_detect_patterns = {'mari': re.compile('^(?P<filename>[^<]*)(?:\\<UDIM\\>)(?P<ext>\\..*?)$', re.I), 
-   'zbrush': re.compile('^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)(?P<ext>\\..*?)$', re.I), 
-   'mudbox': re.compile('^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)(?P<ext>\\..*?)$', re.I)}
-udim_default_pattern = re.compile('^(?P<filename>[^<]*)(?P<ext>\\..*?)$')
+udim_patterns = {
+    "mari": re.compile("^(?P<filename>[^<]*)(?:\\<UDIM\\>)?(?P<ext>\\..*?)$", re.I),
+    "zbrush": re.compile(
+        "^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)?(?P<ext>\\..*?)$", re.I
+    ),
+    "mudbox": re.compile(
+        "^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)?(?P<ext>\\..*?)$", re.I
+    ),
+}
+udim_detect_patterns = {
+    "mari": re.compile("^(?P<filename>[^<]*)(?:\\<UDIM\\>)(?P<ext>\\..*?)$", re.I),
+    "zbrush": re.compile(
+        "^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)(?P<ext>\\..*?)$", re.I
+    ),
+    "mudbox": re.compile(
+        "^(?P<filename>[^<]*)(?:[uU]\\<U\\>_[vV]\\<V\\>)(?P<ext>\\..*?)$", re.I
+    ),
+}
+udim_default_pattern = re.compile("^(?P<filename>[^<]*)(?P<ext>\\..*?)$")
+
 
 def detectUdim(filepath):
     filepath = op.normpath(filepath)
     bname = op.basename(filepath)
-    for name, pat in udim_detect_patterns.iteritems():
+    for name, pat in udim_detect_patterns.items():
         match = pat.match(bname)
         if match:
             return name
 
 
-def getUVTiles(filepath, filename_format='mari'):
+def getUVTiles(filepath, filename_format="mari"):
     uvTiles = []
     filepath = op.normpath(filepath)
     dirname = op.dirname(filepath)
@@ -642,16 +734,22 @@ def getUVTiles(filepath, filename_format='mari'):
     udim_pattern = udim_patterns.get(filename_format, udim_default_pattern)
     match = udim_pattern.match(bname)
     if match:
-        filename = match.group('filename')
-        ext = match.group('ext')
+        filename = match.group("filename")
+        ext = match.group("ext")
         tile_pattern = getUVTilePattern(filename, ext, filename_format)
         if op.exists(dirname):
-            uvTiles = filter(op.exists, [ normpath(os.path.join(dirname, dbn)) for dbn in os.listdir(dirname) if tile_pattern.match(dbn)
-                                        ])
+            uvTiles = filter(
+                op.exists,
+                [
+                    normpath(os.path.join(dirname, dbn))
+                    for dbn in os.listdir(dirname)
+                    if tile_pattern.match(dbn)
+                ],
+            )
     return uvTiles
 
 
-def getTxFile(filepath, ext='tx'):
+def getTxFile(filepath, ext="tx"):
     """
     Get the sequence of files that are named similar but with extension '.tx'
     """
@@ -659,15 +757,15 @@ def getTxFile(filepath, ext='tx'):
     dirname = op.dirname(filename)
     bname = op.basename(filename)
     filename, fileext = op.splitext(bname)
-    txPattern = re.compile('\\.%s' % ext, re.IGNORECASE)
+    txPattern = re.compile("\\.%s" % ext, re.IGNORECASE)
     if not txPattern.match(fileext):
-        txFilename = op.join(dirname, filename + '.%s' % ext)
+        txFilename = op.join(dirname, filename + ".%s" % ext)
         if op.exists(txFilename):
             return txFilename
-    return
 
 
 getFileByExtension = getTxFile
+
 
 def copyFilesTo(desPath, files=[]):
     copiedTo = []
@@ -675,7 +773,10 @@ def copyFilesTo(desPath, files=[]):
         return copiedTo
     for fl in files:
         if op.isfile(fl) and op.exists(fl):
-            desFile = op.join(desPath, lCUFN(desPath, op.basename(fl), hasExt=True, key=op.exists))
+            desFile = op.join(
+                desPath,
+                lCUFN(desPath, op.basename(fl), hasExt=True, key=op.exists),
+            )
             shutil.copy2(fl, desFile)
             copiedTo.append(desFile)
         else:
@@ -692,11 +793,11 @@ def lower(ls=[]):
     try:
         if isinstance(ls, list):
             return (string.lower() for string in ls)
-        if isinstance(ls, basestring):
+        if isinstance(ls, str):
             return ls.lower()
         return ls
     except BaseException as e:
-        print e
+        print(e)
 
 
 def isDirInPath(dir, path):
@@ -704,32 +805,30 @@ def isDirInPath(dir, path):
     @return: True if the "dir" is in "path", else returns False
     """
     dirs = pathSplitter(path)
-    dirs = [ str(x.lower()) for x in dirs ]
-    if str(dir.lower()) in dirs:
-        return True
-    return False
+    dirs = [str(x.lower()) for x in dirs]
+    return str(dir.lower()) in dirs
 
 
 def gotoLocation(path):
     path = normpath(path)
-    if os.name == 'nt':
-        subprocess.Popen('explorer /select,' + path)
+    if os.name == "nt":
+        subprocess.Popen("explorer /select," + path)
     else:
-        subprocess.Popen('xdg-open ' + path)
+        subprocess.Popen("xdg-open " + path)
 
 
 def getFileMDate(path):
-    return str(datetime.datetime.fromtimestamp(op.getmtime(path))).split('.')[0]
+    return str(datetime.datetime.fromtimestamp(op.getmtime(path))).split(".")[0]
 
 
 def timestampToDateTime(timestamp):
-    return str(datetime.datetime.fromtimestamp(timestamp)).split('.')[0]
+    return str(datetime.datetime.fromtimestamp(timestamp)).split(".")[0]
 
 
-def profile(sort='cumulative', lines=50, strip_dirs=False):
+def profile(sort="cumulative", lines=50, strip_dirs=False):
     """A decorator which profiles a callable.
     Example usage:
-    
+
     >>> @profile
         def factorial(n):
             n = abs(int(n))
@@ -742,39 +841,33 @@ def profile(sort='cumulative', lines=50, strip_dirs=False):
     ...
     >>> factorial(5)
     Thu Jul 15 20:58:21 2010    /tmp/tmpIDejr5
-    
+
              4 function calls in 0.000 CPU seconds
-    
+
        Ordered by: internal time, call count
-    
+
        ncalls  tottime  percall  cumtime  percall filename:lineno(function)
             1    0.000    0.000    0.000    0.000 profiler.py:120(factorial)
             1    0.000    0.000    0.000    0.000 {range}
             1    0.000    0.000    0.000    0.000 {abs}
-    
+
     120
     >>>
     """
 
     def outer(fun):
-
         def inner(*args, **kwargs):
-            file = tempfile.NamedTemporaryFile(delete=False)
             prof = cProfile.Profile()
-            try:
-                ret = prof.runcall(fun, *args, **kwargs)
-            except:
-                file.close()
-                raise
+            ret = prof.runcall(fun, *args, **kwargs)
 
             prof.print_stats()
             return ret
 
         return inner
 
-    if hasattr(sort, '__call__'):
+    if hasattr(sort, "__call__"):
         fun = sort
-        sort = 'cumulative'
+        sort = "cumulative"
         outer = outer(fun)
     return outer
 
@@ -785,11 +878,10 @@ def getDirs(path):
 
 
 def timeMe(func):
-
     def wrapper(*args, **kwargs):
         t = time.time()
         result = func(*args, **kwargs)
-        print time.time() - t
+        print(time.time() - t)
         return result
 
     return wrapper
@@ -799,7 +891,7 @@ def timeMe(func):
 def sha512OfFile(path):
     if not op.exists(path):
         raise Exception
-    with open(path, 'rb') as (testFile):
+    with open(path, "rb") as testFile:
         hash = hashlib.sha512()
         while True:
             piece = testFile.read(1073741824)
@@ -815,7 +907,7 @@ def sha512OfFile(path):
 def clearList(lis):
     try:
         del lis[:]
-    except:
+    except Exception:
         return False
 
 
@@ -823,11 +915,11 @@ def which(cmd, mode=os.F_OK | os.X_OK, path=None):
     """Given a command, mode, and a PATH string, return the path which
     conforms to the given mode on the PATH, or None if there is no such
     file.
-    
+
     `mode` defaults to os.F_OK | os.X_OK. `path` defaults to the result
     of os.environ.get("PATH"), or can be overridden with a custom search
     path.
-    
+
     """
 
     def _access_check(fn, mode):
@@ -835,16 +927,15 @@ def which(cmd, mode=os.F_OK | os.X_OK, path=None):
 
     if _access_check(cmd, mode):
         return cmd
-    path = (path or os.environ.get('PATH', os.defpath)).split(os.pathsep)
-    if sys.platform == 'win32':
+    path = (path or os.environ.get("PATH", os.defpath)).split(os.pathsep)
+    if sys.platform == "win32":
         if os.curdir not in path:
             path.insert(0, os.curdir)
-        pathext = os.environ.get('PATHEXT', '').split(os.pathsep)
-        matches = [ cmd for ext in pathext if cmd.lower().endswith(ext.lower()) ]
-        files = [cmd] if matches else [ cmd + ext.lower() for ext in pathext ]
+        pathext = os.environ.get("PATHEXT", "").split(os.pathsep)
+        matches = [cmd for ext in pathext if cmd.lower().endswith(ext.lower())]
+        files = [cmd] if matches else [cmd + ext.lower() for ext in pathext]
     else:
-        files = [
-         cmd]
+        files = [cmd]
     seen = set()
     for dir in path:
         dir = os.path.normcase(dir)
@@ -855,9 +946,6 @@ def which(cmd, mode=os.F_OK | os.X_OK, path=None):
                 if _access_check(name, mode):
                     return name
 
-    return
 
-
-if __name__ == '__main__':
-    print __name__
-# okay decompiling iutilities.pyc
+if __name__ == "__main__":
+    print(__name__)

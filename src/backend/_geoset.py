@@ -1,16 +1,14 @@
-# uncompyle6 version 3.2.3
-# Python bytecode 2.7 (62211)
-# Decompiled from: Python 2.7.15 (v2.7.15:ca079a3ea3, Apr 30 2018, 16:30:26) [MSC v.1500 64 bit (AMD64)]
-# Embedded file name: C:/Users/qurban.ali.ICE-144/Documents/maya/scripts\shot_subm\src\backend\_geoset.py
-# Compiled at: 2017-11-08 17:37:11
-import pymel.core as pc, maya.OpenMaya as api
-a = ''
+import maya.api.OpenMaya as api
+import pymel.core as pc
+
+a = ""
+
 
 def _memo(func):
     func._hash = {}
 
     def _wrapper(node):
-        if func._hash.has_key(node):
+        if node in func._hash:
             return func._hash[node]
         val = func(node)
         func._hash[node] = val
@@ -21,8 +19,8 @@ def _memo(func):
 
 def getGeosets():
     geosets = []
-    for node in pc.ls(exactType='objectSet'):
-        if 'geo_set' in node.name().lower():
+    for node in pc.ls(exactType="objectSet"):
+        if "geo_set" in node.name().lower():
             geosets.append(node)
 
     return geosets
@@ -33,31 +31,30 @@ def getConnectedGeosets(mylist=None):
     if not mylist:
         mylist = pc.ls(sl=1)
     for node in mylist:
-        for myset in node.outputs(type='objectSet'):
-            if 'geo_set' in myset.name().lower():
+        for myset in node.outputs(type="objectSet"):
+            if "geo_set" in myset.name().lower():
                 geosets.add(myset)
 
-        for myset in node.firstParent2.outputs(type='objectSet'):
-            if 'geo_set' in myset.name().lower():
+        for myset in node.firstParent2.outputs(type="objectSet"):
+            if "geo_set" in myset.name().lower():
                 geosets.add(myset)
 
 
 def findSetFromRootNode(root):
     mysets = set()
     pc.select(root)
-    for mesh in pc.ls(sl=1, type='mesh', dag=True):
-        for myset in mesh.firstParent2().outputs(type='objectSet'):
-            if 'geo_set' in myset.name().lower():
+    for mesh in pc.ls(sl=1, type="mesh", dag=True):
+        for myset in mesh.firstParent2().outputs(type="objectSet"):
+            if "geo_set" in myset.name().lower():
                 mysets.add(myset)
 
     return mysets
 
 
 def findAllConnectedGeosets(mylist=None, restrictToNamespace=True):
-
     @_memo
     def _rootParent(node):
-        if hasattr(node, 'firstParent2'):
+        if hasattr(node, "firstParent2"):
             parent = node.firstParent2()
         else:
             return
@@ -66,7 +63,6 @@ def findAllConnectedGeosets(mylist=None, restrictToNamespace=True):
         if restrictToNamespace and parent.namespace() != node.namespace():
             return node
         return _rootParent(parent)
-        return
 
     selection = pc.ls(sl=1)
     if mylist is None:
@@ -88,7 +84,9 @@ def getFromScreen(x, y, x_rect=None, y_rect=None):
     sel = api.MSelectionList()
     api.MGlobal.getActiveSelectionList(sel)
     if x_rect != None and y_rect != None:
-        api.MGlobal.selectFromScreen(x, y, x_rect, y_rect, api.MGlobal.kReplaceList)
+        api.MGlobal.selectFromScreen(
+            x, y, x_rect, y_rect, api.MGlobal.kReplaceList
+        )
     else:
         api.MGlobal.selectFromScreen(x, y, api.MGlobal.kReplaceList)
     objects = api.MSelectionList()
@@ -100,14 +98,18 @@ def getFromScreen(x, y, x_rect=None, y_rect=None):
 
 
 def listSelectedControls():
-    selection = pc.ls(sl=1, type='nurbsCurve', dag=True)
-    return [ node.firstParent() for node in selection ]
+    selection = pc.ls(sl=1, type="nurbsCurve", dag=True)
+    return [node.firstParent() for node in selection]
 
 
 def getFuture(node, visited=None):
     if visited is None:
         visited = set()
-    outputs = [ output for output in node.outputs(type=('constraint', 'mesh', 'transform')) if output not in visited ]
+    outputs = [
+        output
+        for output in node.outputs(type=("constraint", "mesh", "transform"))
+        if output not in visited
+    ]
     visited.update(outputs)
     for thing in outputs:
         getFuture(thing, visited)
@@ -143,7 +145,7 @@ def findDrivenMeshes(node, done=None):
 
 
 def getSetFromMesh(mesh):
-    return mesh.outputs(type='objectSet')
+    return mesh.outputs(type="objectSet")
 
 
 def findGeoSets():
@@ -155,4 +157,3 @@ def findGeoSets():
             geosets.update(getSetFromMesh(mesh))
 
     return geosets
-# okay decompiling _geoset.pyc

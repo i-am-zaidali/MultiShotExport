@@ -1,25 +1,32 @@
-# uncompyle6 version 3.2.3
-# Python bytecode 2.7 (62211)
-# Decompiled from: Python 2.7.15 (v2.7.15:ca079a3ea3, Apr 30 2018, 16:30:26) [MSC v.1500 64 bit (AMD64)]
-# Embedded file name: C:/Users/qurban.ali.ICE-144/Documents/maya/scripts\shot_subm\src\backend\shotactions.py
-# Compiled at: 2017-11-08 17:37:11
+import json
+import os.path as osp
+import tempfile
+import typing
 from abc import ABCMeta, abstractmethod
-from collections import OrderedDict
-import json, os.path as osp
+
+import typing_extensions as te
+
+if typing.TYPE_CHECKING:
+    from ..shot_form_tab import ShotFormExportTypeTab
+    from .shotplaylist import Playlist, PlaylistItem
+
 dir_path = osp.dirname(__file__)
 
-class ActionList(OrderedDict):
-    """A list of Actions that can be performed on a :class:`shotplaylist.PlaylistItem`
-    or :class:`playlist.Playlist` """
 
-    def __init__(self, item, *args, **kwargs):
+class ActionList(typing.Dict[str, "Action"]):
+    """A list of Actions that can be performed on a :class:`shotplaylist.PlaylistItem`
+    or :class:`playlist.Playlist`"""
+
+    def __init__(self, item: "PlaylistItem", *args, **kwargs):
         """Create an Action List"""
-        super(ActionList, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self._item = item
-        actionsubs = Action.inheritors()
-        if not item.actions:
+        if not getattr(item, "_PlaylistItem__data").get(
+            "actions"
+        ):  # name mangling lmao
             return
-        for ak in item.actions.keys():
+        for ak in item.actions:
+            actionsubs = Action.inheritors()
             cls = actionsubs.get(ak)
             if cls:
                 self[ak] = cls(item.actions[ak])
@@ -28,10 +35,10 @@ class ActionList(OrderedDict):
                 self[ak] = item.actions[ak]
 
     def getActions(self):
-        actions = []
-        for ak in self.keys():
-            if isinstance(self[ak], Action):
-                actions.append(self[ak])
+        actions: typing.List[Action] = []
+        for action in self.values():
+            if isinstance(action, Action):
+                actions.append(action)
 
         return actions
 
@@ -41,7 +48,8 @@ class ActionList(OrderedDict):
 
     def add(self, action):
         if not isinstance(action, Action):
-            raise TypeError, 'only Actions can be added'
+            print(action, type(action))
+            raise TypeError("only Actions can be added")
         classname = action.__class__.__name__
         action._item = self._item
         self[classname] = action
@@ -51,83 +59,99 @@ class ActionList(OrderedDict):
         key = action
         if isinstance(action, Action):
             key = action.__class__.__name__
-        if self.has_key(key):
+        if key in self:
             del self[key]
 
 
-class Action(OrderedDict):
-    __metaclass__ = ABCMeta
-    _conf = None
-    __item__ = None
+class Action(typing.Dict[typing.Any, typing.Any], metaclass=ABCMeta):
+    _conf: typing.Any
+    __item__: "PlaylistItem"
+    tempPath = tempfile.TemporaryDirectory(suffix="multishotExport")
 
     def __init__(self, *args, **kwargs):
-        super(Action, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         if self.enabled is None:
             self.enabled = True
-        self.tempPath = osp.join(osp.expanduser('~'), 'multiShotExport')
-        return
 
-    def getEnabled(self):
-        return self.get('enabled')
+    @classmethod
+    def cleanup(cls):
+        cls.tempPath.cleanup()
 
-    def setEnabled(self, val):
-        self['enabled'] = val
+    @property
+    def enabled(self) -> bool:
+        return self.get("enabled", False)
 
-    enabled = property(getEnabled, setEnabled)
+    @enabled.setter
+    def enabled(self, val):
+        if not isinstance(val, bool):
+            raise TypeError("enabled must be a boolean value")
+        self["enabled"] = val
+
+    @property
+    def path(self) -> str:
+        return self.get("path", "")
+
+    @path.setter
+    def path(self, value: str):
+        if not value:
+            raise ValueError("Path cannot be empty")
+        if not isinstance(value, str):
+            raise TypeError("Path must be a string")
+        self["path"] = value
+
+    @property
+    @abstractmethod
+    def objects(self) -> typing.List[object]:
+        """Get the objects associated with this action."""
+        raise NotImplementedError("objects must be implemented by subclasses")
+
+    @objects.setter
+    @abstractmethod
+    def objects(self, value: typing.List[object]):
+        """Set the objects associated with this action."""
+        raise NotImplementedError("objects must be implemented by subclasses")
 
     @abstractmethod
-    def perform(self):
+    def perform(self, **kwargs):
         pass
 
-    def _item():
-        doc = 'The _item property.'
+    @property
+    def _item(self):
+        return self.__item__
 
-        def fget(self):
-            return self.__item__
+    @_item.setter
+    def _item(self, val):
+        self.__item__ = val
 
-        def fset(self, value):
-            self.__item__ = value
+    plItem = _item
 
-        return locals()
-
-    plItem = property(**_item())
-    _item = property(**_item())
-
-    def read_conf(self, confname=''):
+    def read_conf(self, confname=""):
         if not confname:
             confname = self.__class__.__name__
-        with open(osp.join(dir_path, confname)) as (conf):
+        with open(osp.join(dir_path, confname)) as conf:
             self._conf = json.load(conf)
 
-    def write_conf(self, confname=''):
+    def write_conf(self, confname=""):
         if not confname:
             confname = self.__class__.__name__
-        with open(osp.join(dir_path, confname), 'w+') as (conf):
+        with open(osp.join(dir_path, confname), "w+") as conf:
             json.dump(self._conf, conf)
 
-    def get_conf(self):
+    @property
+    def conf(self):
         return self._conf
 
-    conf = property(get_conf)
+    @classmethod
+    def inheritors(cls):
+        return {
+            **{sc.__name__: sc for sc in cls.__subclasses__()},
+            cls.__name__: cls,
+        }
 
     @classmethod
-    def inheritors(klass):
-        subclasses = dict()
-        work = [klass]
-        while work:
-            parent = work.pop()
-            for child in parent.__subclasses__():
-                if child not in subclasses.values():
-                    scname = child.__name__
-                    subclasses[scname] = child
-                    work.append(child)
-
-        return subclasses
-
-    @classmethod
-    def performOnPlaylist(cls, pl):
-        for item in pl.get_items():
-            action = cls.getActionsFromList(item.actions)
+    def performOnPlaylist(cls, pl: "Playlist"):
+        for item in pl.getItems():
+            action = cls.getActionFromList(item.actions)
             if action and action.enabled:
                 cls.getActionFromList(item.actions).perform()
                 yield True
@@ -135,9 +159,9 @@ class Action(OrderedDict):
                 yield False
 
     @classmethod
-    def getNumActionsFromPlaylist(cls, pl):
+    def getNumActionsFromPlaylist(cls, pl: "Playlist"):
         num = 0
-        for item in pl.get_items():
+        for item in pl.getItems():
             action = cls.getActionFromList(item.actions)
             if action and action.enabled:
                 num += 1
@@ -145,11 +169,35 @@ class Action(OrderedDict):
         return num
 
     @classmethod
-    def getActionFromList(cls, actionlist, forceCreate=True):
-        if not isinstance(actionlist, ActionList):
-            raise TypeError, 'Only Action lists can be queried'
+    @typing.overload
+    def getActionFromList(
+        cls, actionlist: ActionList, forceCreate: te.Literal[True] = True
+    ) -> te.Self:
+        """Get an Action from an ActionList, optionally creating it if it does not exist."""
+        ...
+
+    @classmethod
+    @typing.overload
+    def getActionFromList(
+        cls, actionlist: ActionList, forceCreate: te.Literal[False]
+    ) -> typing.Optional[te.Self]:
+        """Get an Action from an ActionList, optionally creating it if it does not exist."""
+        ...
+
+    @classmethod
+    def getActionFromList(
+        cls, actionlist: ActionList, forceCreate: bool = True
+    ) -> typing.Optional[te.Self]:
+        if actionlist.__class__.__name__ != "ActionList":
+            print(actionlist.__class__.__name__)
+            raise TypeError("Only Action lists can be queried")
         action = actionlist.get(cls.__name__)
         if not action and forceCreate:
             action = cls()
-        return action
-# okay decompiling shotactions.pyc
+        print(f"Action {cls.__name__} found: {action}")
+        return action  # type: ignore[return-value]
+
+    @staticmethod
+    def getTabUI() -> typing.Type["ShotFormExportTypeTab[Action]"]:
+        """Get the UI for this action. This method should be overridden by subclasses."""
+        raise NotImplementedError("getTabUI must be implemented by subclasses")
